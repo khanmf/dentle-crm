@@ -88,8 +88,10 @@ Deployed to Vercel (`dentle-crm.vercel.app`) + a fresh Supabase project + a Meta
 - **P1 (config: pipeline stages, custom fields, branding, users):** doable now —
   no WhatsApp sending required. P1 exit test (13-list board + a lead walks
   stages 1→7) is internal CRM data.
-- **P2 (flow/automation port):** buildable now; send-dependent steps can't be
-  fully validated until verification clears.
+- **P2 (flow/automation port):** buildable now; **spec'd out — see the "P2 —
+  flow port" section at the bottom** (Flows build map + price automation + Meta
+  template definitions); send-dependent steps can't be fully validated until
+  verification clears.
 - **P3 (AI/brain — KB, AI draft, digest):** AI *drafts* are testable now;
   auto-send/broadcast waits.
 - **P4 (go-live):** blocked until verification + a real/dedicated number.
@@ -212,3 +214,197 @@ then create a **test lead** and drag it through **stages 1 → 7** (Fresh inquir
 - **P1b configuration: guided, owner-action** — the runbook above is the
   hand-off; the exit test is performed by the owner in the live app (it needs no
   code and no sending).
+
+---
+
+## P2 — flow port (2026-07-22)
+
+Branch: `claude/p1-crm-configuration-fyeplb` (continues P1 — the harness-default
+`claude/dentle-crm-flow-port-jrloyg` is 3 commits behind and has neither the P1
+branding nor these notes, so P2 stays on the P1 branch per the owner's task).
+Doctrine held: **configure, don't code.** No app code was written in P2 — the
+fork's builders already express the whole 09.1 flow (P0 verified `send_buttons`/
+`send_list` with per-button branching + full template lifecycle). This section is
+the **execution-ready build spec + template definitions**; like P1b, the actual
+clicks and the Meta template submission are **owner-action in the live app**
+(there is no builder-as-code seed for flows — flows live in Supabase rows created
+by the visual builder; see the D3 decision below for the one code option).
+
+**Send still Meta-blocked (`131031`, account restricted → business verification).**
+So P2 is **build-only**: the flow and templates get *built and submitted*, but
+live send/parity can't be validated until verification clears. The §9 gate is
+formally still open — proceeding is the owner's call (unchanged from P0/P1).
+
+### What the fork gives us (verified against this branch's source)
+
+Two builders, and the 09.1 flow needs **both**:
+
+- **Flows** (left nav → **Flows**, beta) — a visual node canvas, conversation-
+  driven. Trigger `first_inbound_message`; node types `start`, `send_message`,
+  `send_buttons`, `send_list`, `send_media`, `collect_input`, `condition`,
+  `set_tag`, `handoff`, `end`; every button/list row carries its own
+  `next_node_key`, so branching is native. A per-flow **fallback policy**
+  (`on_unknown_reply: reprompt | handoff | ignore`, `max_reprompts`,
+  `on_timeout_hours`, `on_exhaust`) handles free-text-after-a-button.
+  (Types: `src/lib/flows/types.ts`.)
+- **Automations** (left nav → **Automations**) — trigger→steps, event/schedule
+  driven. Triggers incl. `keyword_match`, `interactive_reply`, `tag_added`,
+  `time_based`; steps incl. `send_message`, `send_template`, `add_tag`,
+  `create_deal`, `wait` (min/hours/days), `condition`. `wait` enqueues a
+  `automation_pending_executions` row drained by `GET /api/automations/cron`
+  (needs `AUTOMATION_CRON_SECRET` + a scheduler — see infra note).
+  (Types: `src/types/index.ts` `AutomationTriggerType`/`AutomationStepType`.)
+
+### A. Main conversational flow (Nodes 1–3, 5–7) → build in **Flows**
+
+Create one flow, **"Dentle — Qualification & Booking"**, trigger
+**First Message from Contact** (`first_inbound_message`), fallback policy
+`on_unknown_reply: handoff` (this is what mechanises 09.1's "any free text that
+isn't a button tap → route to a human, stop automating" doctrine — §2 Node 3 /
+§3). Nodes (node_key → type → config essentials, branch targets in **bold**):
+
+1. `start` → **start** → next: `greet`.
+2. `greet` → **send_buttons** — text: *"Hi! 👋 Thanks for reaching out about
+   Dentle. I'll get you sorted quickly — mind two quick taps?"*; buttons:
+   `[Sure, go ahead]`(reply_id `go`, →**`q_chairs`**) · `[Just send me info]`
+   (reply_id `info`, →**`async_offer`**).  *(09.1 Node 1)*
+3. `q_chairs` → **send_buttons** — *"Great — how many dental chairs does your
+   clinic run?"*; buttons `[1–2]`/`[3–5]`/`[6+]` (reply_ids `c12`/`c35`/`c6`) —
+   **all three → `q_software`** (bucket captured; not gating).  *(Node 2)*
+4. `q_software` → **send_buttons** — *"Got it. And what are you using today?"*;
+   `[Paper / Excel]`/`[Another software]`/`[Nothing yet]` — **all three →
+   `book_offer`**. Optionally precede with `set_tag`/`update_contact_field` to
+   record the answer. Answer is non-gating (Node 3 doctrine).  *(Node 3)*
+5. `book_offer` → **send_list** — *"Whenever you're ready, here are a couple of
+   times — pick whichever works:"*, button_label *"See times"*; rows = 2–3 live
+   demo slots. **⚠ Slots are external (Cal.com/Calendly); the CRM has no calendar
+   integration** — either hard-code a "book here" link row (send_message with the
+   Cal.com URL) or maintain the list manually. On selection → `set_tag`
+   **Demo-Booked** → `end`. *(Node 5 — see reminder note B.)*
+6. `async_offer` → **send_buttons** — *"No worries if a call's tough right now — I
+   can send you a short recorded walkthrough instead. Want that?"*; `[Yes, send
+   it]`(→**`send_async`**) · `[I'll book later]`(→**`nudge_later`**). *(Node 6)*
+7. `send_async` → **send_media** (the 10-min walkthrough — **does not exist yet**,
+   §3.2; until then send the brochure + screenshots and tag *Sent-Brochure*) →
+   `end`.
+8. `nudge_later` → **set_tag** *Nurture* → `end`. The single +24h no-response
+   nudge (Node 6) is **outside the 24h window → a template**, not a flow node —
+   see template T4 (optional) in section C.
+9. **Node 7 (disqualification)** is a human/keyword judgment call, not a button
+   branch. Handle via the fallback `handoff` + a manual `handoff` node the agent
+   can't pre-wire; keep the copy from 09.1 Node 7 as a saved reply. Not
+   auto-built.
+
+### B. Price-if-asked (Node 4) → **Automations**, keyword trigger
+
+09.1 §5 is explicit: price is a **standing intent**, not a linear node. Build an
+Automation, trigger **Keyword Match** (`keyword_match`), keywords: `price, cost,
+how much, ₹, $, AED, fee`, match_type `contains`. Steps:
+
+- **India track:** `send_message` — *"Dentle is ₹7,999/year right now for
+  early-partner clinics (regular price is ₹11,999). Best way to see what you get
+  for it — want me to send you a couple of 15-minute demo slots?"* (never a bare
+  number; demo pivot in the same message — §5 Node 4 DECIDED).
+- **⚠ Do NOT build the Gulf price branch.** The Gulf $ figures are still
+  `PROPOSED` in `01` §4 (only the India ladder is owner-DECIDED). Gulf-track price
+  questions **route to the human-attention tag** (add a `condition` on the
+  `track` custom field = `Gulf` → `add_tag` *Needs-Human* + `assign_conversation`;
+  otherwise send the India message). Build the Gulf reply only after the owner
+  approves `01` §4.
+
+**Honest engine interaction (validate once send unblocks):** if a price question
+is typed *mid-active-flow-run*, the Flows engine may consume it as an unknown
+reply first (→ `handoff` per the fallback policy) so the keyword Automation
+won't also fire. That's on-doctrine (a real conversation gets a real human, Node
+3), but it means the auto price reply reliably covers price-as-first-message /
+after the flow ends, not every mid-flow case. Acceptable; flagged as a
+send-blocked parity item.
+
+**Country/track detection (09.1 §1) is NOT native.** The fork doesn't parse the
+E.164 country code into a Gulf/India `track`. Until a small bridge exists, set
+`track` manually (or default India, since ads currently target India) — the Gulf
+branch is parked anyway. Logged as decision D4 dependency, not built.
+
+### C. Templates to submit for Meta approval (Settings → Templates → New)
+
+Everything in section A (Nodes 1–6 answering an *active* conversation) stays
+inside WhatsApp's 24h window and needs **no template**. Only the messages sent
+**outside** the window need pre-approved templates. Submit these (all category
+**Utility** — near-free, ~₹0.12 vs marketing ~₹0.86; language `en`; the app's
+submit flow is `POST /api/whatsapp/templates/submit` → Meta). Placeholders are
+Meta positional `{{1}}`, `{{2}}`:
+
+- **T1 `demo_confirmation`** (Utility) — body: *"You're booked! Your Dentle demo
+  is confirmed for {{1}}. Here's the link: {{2}}. See you then!"* — vars: `{{1}}`
+  datetime, `{{2}}` meeting link.
+- **T2 `demo_reminder_24h`** (Utility) — body: *"Quick reminder — your Dentle demo
+  is tomorrow at {{1}}. Here's the link: {{2}}. See you then!"*
+- **T3 `demo_reminder_1h`** (Utility) — body: *"Quick reminder — your Dentle demo
+  is in an hour at {{1}}. Here's the link: {{2}}. See you then!"*
+- **T4 `booking_nudge` (optional, Marketing)** — the single +24h no-response nudge
+  (Node 6): *"Just checking in — still happy to set up a time whenever works for
+  you. No pressure!"* Marketing-category if the BSP/Meta classifies it as
+  promotional; send exactly once (no second identical nudge — §5 Node 6).
+
+Submission notes / honest gotchas:
+- **`WHATSAPP_TEMPLATES_DRY_RUN=true`** lets the whole submit UI be exercised
+  without a live Meta call (writes a `dry-run-*` id, status PENDING) — useful to
+  author + validate the payloads now. **Real** approval needs a real submission.
+- **Template submission itself may be gated by the same account restriction**
+  (`131031`) — template *approval* is a separate capability from *messaging*, but
+  a locked WABA can also refuse template creation. **Verify once, in the live
+  app**; if it refuses, templates wait on business verification alongside send.
+
+### The T-24h / T-1h reminder scheduling gap (real, surface as D4)
+
+The templates above can be authored/submitted now, but **WACRM cannot natively
+schedule them relative to a per-lead booked slot.** `time_based` automations are
+absolute cron/HH:mm; `wait` is a delay measured *from the automation's start*,
+not "24h before an external Cal.com/Calendly slot." The CRM never learns the
+booked datetime (booking is external, §4 unchanged). So a true T-24h/T-1h
+reminder needs one of:
+- **(recommended) let Cal.com/Calendly own the timed reminders** — both send
+  native WhatsApp/email workflow reminders and are the only system that knows each
+  lead's slot time. Then T1–T3 above are only needed if WACRM is chosen as the
+  sender.
+- **a small webhook bridge** (Cal.com booking webhook → CRM `send_webhook`/
+  automation storing the slot datetime + enqueuing sends) — this is **code beyond
+  the three sanctioned zones → owner decision (D4)**, not built here.
+- **manual**: owner sets a demo-datetime custom field + the §6 digest flags it.
+
+### Infra note (for whoever activates P2/P3)
+
+Scheduled automations (`wait`, `time_based`) and the P3 digest all depend on the
+cron drain `GET /api/automations/cron` (+ `/api/flows/cron`), which needs
+`AUTOMATION_CRON_SECRET` set and a scheduler hitting it (Vercel Cron or an
+external pinger). There is **no `vercel.json` cron configured** in the repo yet —
+set this up before relying on any delayed/scheduled step.
+
+### §10 owner decisions P2 forces (parked, owner's call)
+
+- **D3 — flow as a code template vs hand-build.** The fork has a first-class
+  starter-flow registry (`src/lib/flows/templates.ts`, "editing in source is the
+  lowest-friction way to add the next template"). Adding the section-A flow there
+  makes the owner's build one click (New from template → review → activate) and is
+  additive/reversible/upstream-portable — **but it's a code edit outside the three
+  sanctioned zones (branding/digest/bug-fix)**, so per the "configure, don't code"
+  doctrine it needs an owner OK first. Default (chosen here): **hand-build from
+  this spec at runtime**, no code. Owner: want the one-click template instead?
+- **D4 — who owns the T-24h/T-1h reminders** (Cal.com/Calendly native workflows
+  **[recommended]** vs a WACRM webhook bridge that needs sanctioned-zone code)?
+  Blocks fully-automated reminders; templates T1–T3 are authored either way.
+- Reaffirms **§5.1 Q1 (number strategy, Option A)** — P2's booking/reminder path
+  and P4 both depend on the dedicated sales number.
+- Rest of §10 (infra pick, assistant convergence, HubSpot retirement, the friend)
+  still parked.
+
+### P2 status
+
+- **Flow + price-automation + templates: SPEC'd and ready to build** (this
+  section is the hand-off). No code shipped (doctrine).
+- **Build + Meta submission: owner-action in the live app**, one sitting —
+  naturally paired with the deferred P1b clicks once business verification clears.
+- **Exit test (§8: side-by-side parity with the BSP flow on the test number):
+  BLOCKED on send** (`131031`) — the conversational nodes can be walked on the
+  test number as far as inbound allows, but confirmation/reminder sends and true
+  parity wait on verification.
