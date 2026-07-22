@@ -4,6 +4,45 @@ Fork of [`ArnasDon/wacrm`](https://github.com/ArnasDon/wacrm) (v0.8.0), operated
 by Dentle as a **self-hosted** WhatsApp CRM. Work happens in short sessions, so
 this file is the running record of what's done and what's left.
 
+## ⚠️ DEFERRED — OWNER ACTIONS OUTSTANDING (P1 config + review)
+
+**Status (2026-07-22): P1 branding code is SHIPPED and pushed. The P1 *runtime
+configuration* and the *branding review* are DEFERRED — the owner chose to move
+to P2 now and come back to these later.** None of the items below need WhatsApp
+sending (still Meta-blocked, `131031`); they are all internal clicks in the live
+app. **Nothing here is live/proven until the owner does these AND Meta business
+verification clears.** How-to detail for each is in the **"P1b — runtime
+configuration runbook"** section lower in this file.
+
+- [ ] **Review the branding** on `dentle-crm.vercel.app` — new default Dentle
+      teal theme, teal favicon, product name now "Dentle CRM". If disliked, it's
+      a trivial revert on branch `claude/p1-crm-configuration-fyeplb`.
+- [ ] **Create the "Sales" pipeline + its 9 stages** (§4.1): Fresh inquiry →
+      Talks started → Seriously interested → Make ready for demo → Ready for demo
+      → Demo scheduled → Demo given → Post-demo negotiating → Cold. *Why: this is
+      the board the whole funnel runs on.*
+- [ ] **Create the tags** `customer` (+ `plan` field) and `do-not-contact`.
+      *Why: Customers and Dead are tags, not stages; `do-not-contact` is the hard
+      opt-out every automation/broadcast must exclude.*
+- [ ] **Create the ~12 contact custom fields** (§4.2) — incl. next-follow-up
+      date, language (EN/HI/Hinglish), source, track. *Why: the follow-up +
+      digest-flagging discipline and reply-mirroring depend on them.*
+- [ ] **Decide §7 Q7 + invite helpers:** give the data-entry helper an inbox
+      login **now** (least-privilege **Agent** role) or stay owner-only until V2
+      is proven — then invite up to 2 helpers as Agent, or defer. *Why: needed
+      before anyone but the owner touches the inbox.*
+- [ ] **Decide §5.1 Q1 (number strategy):** approve Option A — one dedicated
+      sales number (personal number + current chats stay untouched). *Why: not
+      needed for P1 clicks, but P2/P4 depend on it; decide when convenient.*
+- [ ] **Run the P1 exit test:** create a test lead and drag it through stages
+      **1 → 7** (Fresh inquiry → Demo given). *Why: this is P1's done-definition.*
+
+> Why deferring is safe: P2 (flow port) is build-only while send is Meta-blocked,
+> and it does not require these clicks to exist first. The natural moment to do
+> this checklist is one sitting later — alongside activating P2 and getting
+> templates approved — once verification clears. Mirrored in the business queue
+> row **S-4.6** (`Dentle-Application` repo, `claude/business-planning`).
+
 ## Decision (2026-07-22)
 
 - **Self-host only — no BSP.** Dentle runs this fork directly; the "use a BSP"
