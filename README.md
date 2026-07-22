@@ -1,8 +1,8 @@
-# wacrm — CRM Template for WhatsApp
+# Dentle CRM — WhatsApp Sales CRM
 
-> Self-hostable CRM template for WhatsApp® — shared inbox, contacts,
-> sales pipelines, broadcasts, and no-code automations. Fork it, brand
-> it, host it.
+> Dentle's self-hosted WhatsApp® sales CRM — a fork of
+> [WACRM](https://github.com/ArnasDon/wacrm) (MIT). Shared inbox,
+> contacts, sales pipelines, broadcasts, and no-code automations.
 
 <p align="center">
   <a href="https://www.hostinger.com/web-apps-hosting">
