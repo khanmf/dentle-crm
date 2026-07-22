@@ -21,6 +21,10 @@ The marketing site and self-host docs live in a separate repo:
 ([wacrm.tech](https://wacrm.tech)). This repo is the product —
 clone or fork it to run your own CRM.
 
+> **Dentle fork:** this is a self-hosted fork operated by Dentle. See
+> [`DENTLE_FORK_NOTES.md`](./DENTLE_FORK_NOTES.md) for fork status, the P0
+> spike results, and the current top priority (Meta business verification).
+
 ## What you get out of the box
 
 - **Shared inbox** on the official WhatsApp Business API — multiple
