@@ -408,3 +408,140 @@ set this up before relying on any delayed/scheduled step.
   BLOCKED on send** (`131031`) — the conversational nodes can be walked on the
   test number as far as inbound allows, but confirmation/reminder sends and true
   parity wait on verification.
+
+---
+
+## P3 — brain port (2026-07-23)
+
+Branch: `claude/p1-crm-configuration-fyeplb` (continues P1/P2 — the P1 branding,
+the P2 spec, and this record all live here; the harness-default P3 branch is
+based on `main` and has none of it). Doctrine held: **configure, don't code**;
+the only code written is the sanctioned **daily digest job (§6)** + its scheduler.
+
+**Send still Meta-blocked (`131031`).** AI *drafts-in-inbox* are fully testable
+now; **auto-send/broadcast wait on business verification** per §2.6. The §9 gate
+is formally still open — proceeding is the owner's call (unchanged from P0–P2).
+
+### What the fork's built-in AI gives us (verified against this branch's source)
+
+The 09.5 V1.5 brain maps 1:1 onto the fork's built-in assistant — **all runtime
+config, no code:**
+
+- **System prompt** = `ai_configs.system_prompt`, a Settings field
+  (`src/lib/ai/config.ts`, `src/components/settings/ai-config.tsx`).
+- **Knowledge base** = uploaded docs, retrieved per query
+  (`src/components/settings/ai-knowledge.tsx`, `POST /api/ai/knowledge`;
+  lexical FTS by default, **semantic pgvector when an embeddings key is set** —
+  see D2).
+- **Draft mode** = master switch **`is_active` ON** + **`auto_reply_enabled`
+  OFF** → the inbox shows an AI-drafted reply the agent approves/sends; nothing
+  auto-sends. Auto-reply (green list) is the same switch flipped on later, after
+  the 2–4-week soak (§2.6), with a conservative per-conversation cap
+  (`auto_reply_max_per_conversation`, 1–20).
+
+### A. KB + system prompt + draft mode → owner-action in the live app
+
+Two paste-ready files were generated in `docs/dentle/` (content, not app code):
+
+- **`docs/dentle/sales_agent_kb.md`** → paste into **Settings → AI → Knowledge**.
+  Assembled from the truth docs (product facts `05a` Part 1, pricing `01 §4`,
+  objections `04 §3.3`, banned claims `05a` Part 4) with every claim traceable.
+  Gulf/USD pricing is flagged **do-not-quote** (still `PROPOSED`).
+  ⚠️ **This stands in for the canonical `05a_SALES_AGENT_KB.md`, which was never
+  generated in the business repo — see D5.**
+- **`docs/dentle/assistant_system_prompt.md`** → paste into **Settings → AI →
+  System prompt**. This is the 09.5 **§2.3 reply doctrine + §2.4 stage
+  playbook**, verbatim (per 09.7 §5.3). Facts stay in the KB; the prompt governs
+  *how* to reply.
+- **Turn draft mode ON:** Settings → AI → set the assistant **Active** (master
+  switch on) and leave **Auto-reply OFF**. Enter the **Anthropic API key**
+  (the capped one). Recommend Sonnet for drafting (09.5 §2.5). **$15/month hard
+  cap** — set it on the **Anthropic Console** (the app doesn't auto-enforce, D1)
+  and rely on the digest's spend line as the second guard.
+
+**Exit test (§8 — "drafts match V1.5 quality on replayed real threads"):** this
+is the one P3 exit test that **is runnable now** (drafts don't need outbound
+send). Once the KB + prompt + key are entered and draft mode is on, open a real
+past thread in the inbox and hit the AI draft button; compare against the V1.5
+make.com→Claude outputs. Owner-action in the live app.
+
+### B. Daily digest job (§6) — the one sanctioned piece of code, SHIPPED
+
+Files (isolated, upstream-mergeable):
+
+- **`src/lib/digest/build.ts`** — query + pure text formatter. Six lines:
+  (1) new leads by stage (deals created in 24h), (2) threads awaiting your
+  reply, (3) post-demo negotiating (list 8), (4) demos scheduled, (5) **⚠
+  active-stage contacts with NO next-follow-up date** (the §2.4 alarm), (6) AI
+  spend this month vs the $15 cap (the **D1** "digest guard"). Stage names match
+  the P1b runbook; overridable via env.
+- **`src/lib/digest/build.test.ts`** — unit tests for the formatter (4 cases).
+- **`src/app/api/digest/cron/route.ts`** — `GET`, same `x-cron-secret` /
+  `AUTOMATION_CRON_SECRET` auth as the other cron routes. Computes the digest,
+  **always returns it in the JSON response + logs it**, and *attempts* WhatsApp
+  delivery to the owner (`DIGEST_RECIPIENT_PHONE`) via the CRM's own number.
+
+  **Delivery rides the same verification unblock as every other send:** while
+  `131031` stands, the WhatsApp send fails — caught, reported as
+  `delivery:"failed"`, never throws (silent-to-lead, loud-to-owner, §3.3). The
+  digest **content is testable today** via the endpoint response / run logs;
+  once verification clears, delivery flows with **no further code change**.
+
+Verified: `npm run typecheck`, `npm run lint`, `npm test` (digest), and
+`npm run build` all green.
+
+### C. Scheduler / cron — SET UP (was missing)
+
+`AUTOMATION_CRON_SECRET` + a scheduler were not configured (flagged in P2). Now:
+
+- **`.github/workflows/digest-cron.yml`** — a GitHub Actions pinger hitting all
+  three cron endpoints (`/api/automations/cron` + `/api/flows/cron` every 5 min;
+  `/api/digest/cron` daily 03:35 UTC ≈ 09:05 IST) with the `x-cron-secret`
+  header. This is the **external pinger the routes were designed for** — Vercel
+  Cron can't set a custom header, so it can't drive them. cron-job.org is an
+  equally valid alternative (same URLs + header).
+- **Owner setup (once):** set `AUTOMATION_CRON_SECRET` on Vercel; add repo
+  Action secrets `CRM_BASE_URL` + `CRM_CRON_SECRET`; optionally set
+  `DIGEST_RECIPIENT_PHONE`. The workflow no-ops safely until the secrets exist,
+  and GitHub only runs scheduled workflows from the **default branch**, so it
+  activates when this lands on `main` + the secrets are set.
+
+### P2 carry-overs — resolved/parked explicitly
+
+- **D3 (flow-as-code template):** **PARKED — default stands** (hand-build the
+  Section-A flow at runtime from the P2 spec; no code). P3 doesn't force it. Owner
+  can still opt into the one-click `src/lib/flows/templates.ts` route later.
+- **D4 (who owns T-24h/T-1h reminders):** **PARKED — recommendation stands**
+  (let Cal.com/Calendly own the timed reminders; it's the only system that knows
+  each lead's slot). The digest surfaces demos-scheduled as a manual backstop.
+  No reminder code written.
+
+### §10 owner decisions P3 surfaces (parked, owner's call)
+
+- **D5 — canonical KB file never generated.** 09.5 §2.2's
+  `05a_SALES_AGENT_KB.md` doesn't exist in the business repo; P3 assembled
+  `docs/dentle/sales_agent_kb.md` in the fork from the truth docs as the load
+  source. Owner: back-port this to the business repo as the canonical KB, or
+  regenerate it there in a Sonnet session (§2.2 maintenance rule)? Either way,
+  keep the fork copy as what actually gets loaded.
+- **D6 — digest delivery channel.** The fork has **no email infra** (invites are
+  share-a-link) and WhatsApp-to-owner is send-blocked. Chosen interim:
+  WhatsApp delivery (rides verification) + the endpoint/run-logs as the read
+  surface. Owner: accept this, or add an email provider (a new moving part,
+  against principle 4)? Recommend accept for now.
+- **D1 (carry) — $15 cap not auto-enforced:** mitigated as designed — Anthropic
+  Console hard limit + the digest's spend-vs-cap line. No app change.
+- **D2 (carry) — semantic KB needs an embeddings key:** load the KB with lexical
+  FTS first; if Hindi/Hinglish retrieval proves weak (the P0 open), set an
+  OpenAI embeddings key in Settings → AI to switch to pgvector. Owner-action.
+- Reaffirms **§5.1 Q1 (number strategy, Option A)** and **§7 Q7 (helper access)**
+  — still parked from P1.
+
+### P3 status
+
+- **KB + system prompt + draft-mode: guided, owner-action** (paste-ready files +
+  runbook above; the draft-quality exit test is runnable now, no send needed).
+- **Daily digest job + scheduler: SHIPPED** (code; typecheck/lint/test/build
+  green). Digest content testable today; WhatsApp delivery waits on verification.
+- **Next: P4 (go-live) — BLOCKED on Meta business verification + a dedicated
+  number.**

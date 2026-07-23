@@ -1,0 +1,78 @@
+# ============================================================
+# Scheduled pinger for the CRM's cron endpoints.
+#
+# The three cron routes — /api/automations/cron (drain waits),
+# /api/flows/cron (sweep abandoned runs), and /api/digest/cron (the
+# daily owner digest) — are guarded by the shared `x-cron-secret`
+# header (matched against AUTOMATION_CRON_SECRET on the server). Vercel
+# Cron cannot set a custom header, so an external pinger owns the
+# schedule; this GitHub Action is that pinger. cron-job.org is an
+# equally valid alternative (same URLs + header).
+#
+# ── Setup (owner, once) ─────────────────────────────────────
+#   1. On the host (Vercel): set env var AUTOMATION_CRON_SECRET to a
+#      long random string.  Optionally set DIGEST_RECIPIENT_PHONE (the
+#      owner's WhatsApp number, E.164) so the digest is delivered once
+#      Meta business verification clears; until then the digest text is
+#      returned in the endpoint response / run logs.
+#   2. In this repo: Settings → Secrets and variables → Actions, add
+#        CRM_BASE_URL   = https://dentle-crm.vercel.app   (no trailing /)
+#        CRM_CRON_SECRET = <same value as AUTOMATION_CRON_SECRET>
+#
+# GitHub only runs scheduled workflows from the repo's DEFAULT branch,
+# and schedules can lag a few minutes on the free tier — fine for a
+# 5-minute drain and a daily digest. Jobs no-op safely (exit 0) if the
+# secrets are absent, so merging this before setup does nothing.
+# ============================================================
+name: CRM cron pinger
+
+on:
+  schedule:
+    # Every 5 minutes: drain automation waits + sweep stale flow runs.
+    - cron: '*/5 * * * *'
+    # Daily 03:35 UTC (~09:05 IST): the owner digest.
+    - cron: '35 3 * * *'
+  workflow_dispatch: # allow a manual run from the Actions tab
+
+concurrency:
+  group: crm-cron-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping cron endpoints
+        env:
+          BASE_URL: ${{ secrets.CRM_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRM_CRON_SECRET }}
+          # '35 3 * * *' is the daily-digest schedule; used to decide
+          # whether this run should also hit the digest endpoint.
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "CRM_BASE_URL / CRM_CRON_SECRET not set — nothing to do."
+            exit 0
+          fi
+
+          ping() {
+            local path="$1"
+            local code
+            code=$(curl -sS -o /tmp/body.txt -w '%{http_code}' \
+              -H "x-cron-secret: $CRON_SECRET" "$BASE_URL$path" || echo 000)
+            echo "$path -> HTTP $code"
+            cat /tmp/body.txt; echo
+            # 2xx only; a non-2xx from any endpoint fails the run so the
+            # owner sees a red check rather than silent cron rot.
+            case "$code" in 2*) return 0 ;; *) return 1 ;; esac
+          }
+
+          rc=0
+          # On every tick: drain + sweep.
+          ping /api/automations/cron || rc=1
+          ping /api/flows/cron || rc=1
+          # Only on the daily schedule: the digest.
+          if [ "$SCHEDULE" = "35 3 * * *" ] || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            ping /api/digest/cron || rc=1
+          fi
+          exit $rc
