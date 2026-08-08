@@ -411,7 +411,7 @@ set this up before relying on any delayed/scheduled step.
 
 ---
 
-## P3 — brain port (2026-07-29)
+## P3 — brain port (2026-08-08)
 
 Branch: `claude/p1-crm-configuration-fyeplb` (continues P1/P2 — the P1 branding,
 the P2 spec, and this record all live here; the harness-default P3 branch is
