@@ -545,3 +545,53 @@ Verified: `npm run typecheck`, `npm run lint`, `npm test` (digest), and
   green). Digest content testable today; WhatsApp delivery waits on verification.
 - **Next: P4 (go-live) — BLOCKED on Meta business verification + a dedicated
   number.**
+
+---
+
+## 🔓 SEND UNBLOCKED — P4 GATE IS OPEN (2026-08-08)
+
+**Meta Business Verification APPROVED, and the WABA restriction (`131031`,
+"Account restricted — Permanent") has LIFTED.** Confirmed empirically, not
+assumed: a message was sent from the owner's personal WhatsApp to the CRM's
+Meta **test number** (inbound received in the Inbox) and a reply was sent back
+**from the CRM** (outbound delivered). Both directions work.
+
+This closes the blocker that has stood since the P0 live run (2026-07-22) and
+that gated P2's parity exit test, P3's digest delivery + auto-send, and all of
+P4.
+
+### How verification was obtained (for the record)
+
+Entity: **Dentle Software**, sole proprietorship, **UDYAM-MP-10-0175714**,
+Bhopal. **Udyam alone sufficed** — no bank current account, no GST, no second
+document was required, contrary to the earlier expectation that it might not
+be enough. Domain `dentle.in` was verified first via the
+`facebook-domain-verification` **meta-tag** in the static `<head>` (not DNS
+TXT). The website was brought up to standard first — legal name, registered
+address, phone, email, Udyam number, and live Privacy/Terms/Refunds/Contact
+pages — because Meta cross-checks the live site. Full detail:
+`docs/business/META_VERIFICATION_RUNBOOK.md` in `khanmf/Dentle-Application`
+(branch `claude/business-planning`).
+
+### What is now runnable that was not
+
+- **P2 exit test** — flow + template parity can finally be validated live.
+- **P3 exit test** — the digest can actually deliver over WhatsApp; auto-send
+  becomes possible after its soak (still **draft-mode only** until then, §2.6).
+- **P4 go-live** — no longer blocked.
+
+### The one irreversible step, still deliberately NOT taken
+
+**Number onboarding.** Decision recorded: **+91 99267 28030** (the owner's
+business number, chats already clear) becomes the API number. **No third
+number is being bought.** Onboarding removes it from the WhatsApp phone app
+permanently and does not migrate chat history — so it waits until the CRM is
+genuinely ready to receive, or leads will message a number nobody is watching.
+The Meta **test number** stays the safe surface until then.
+
+### Priority note
+
+Send being unblocked makes P4 *possible*, not *urgent*. The owner's binding
+constraint is still revenue inside 30 days (`00_QUEUE.md` §0). P4 is a
+multi-session infrastructure build that makes selling scale; it does not
+itself make a sale. Warm leads in `M0_DOCTOR_DOSSIERS.md` come first.
