@@ -1,5 +1,11 @@
 # Dentle fork — status & notes
 
+> 👉 **DOING THE CONFIGURATION? Read `CONFIG_SITTING_CHECKLIST.md` instead.**
+> This file is the *reasoning record* — P0→P3 written in the order it happened.
+> The checklist is the same steps in the order you actually perform them, with
+> the exit tests attached. Use the checklist to work; use this file to
+> understand why a step exists.
+
 Fork of [`ArnasDon/wacrm`](https://github.com/ArnasDon/wacrm) (v0.8.0), operated
 by Dentle as a **self-hosted** WhatsApp CRM. Work happens in short sessions, so
 this file is the running record of what's done and what's left.
