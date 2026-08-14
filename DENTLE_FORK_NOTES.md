@@ -601,3 +601,55 @@ Send being unblocked makes P4 *possible*, not *urgent*. The owner's binding
 constraint is still revenue inside 30 days (`00_QUEUE.md` §0). P4 is a
 multi-session infrastructure build that makes selling scale; it does not
 itself make a sale. Warm leads in `M0_DOCTOR_DOSSIERS.md` come first.
+
+---
+
+## Config sitting — progress (2026-08-11)
+
+**DONE and live:**
+- **P1b config** — Sales pipeline (9 stages), `customer` / `do-not-contact` /
+  `Nurture` tags, custom fields.
+- **P2 flow — BUILT AND ACTIVATED.** "Dentle — Qualification & Booking",
+  trigger `first_inbound_message`, fallback `handoff`. Greeting → 2-tap
+  qualification → booking → async/nudge branches → tag → end. Verified firing
+  on a real inbound.
+- **P3 AI config** — KB + system prompt pasted, **draft mode ON**
+  (`is_active` on, `auto_reply` off). Provider is **OpenAI (GPT-5.4 Mini)**,
+  not Anthropic — owner's choice; the same OpenAI key is used for embeddings.
+
+### ✅ D4 CLOSED — Cal.com owns booking and demo reminders
+
+Booking link: **`https://cal.com/dentle/30min`**, connected to the owner's real
+Google Calendar. This resolves the P2 gap where the CRM could not schedule
+T-24h/T-1h reminders (it never learned the booked slot) — **Cal.com sends its
+own reminders**, so the `demo_confirmation` / `demo_reminder_24h` /
+`demo_reminder_1h` templates are **no longer needed**. Only the optional
+`booking_nudge` template remains worth submitting.
+
+The flow's booking node sends the Cal.com link. The website's "Book a demo"
+buttons now open Cal.com too (`khanmf/dentle_website`, on `main`, **not yet
+promoted to production**) — the old BookingModal offered hardcoded slots and
+then asked "are you free at this time?", which kept the manual back-and-forth
+and could contradict the real calendar.
+
+### ⚠️ OPEN — knowledge-base retrieval quality (owner parked this)
+
+Drafts answer thinly. Asked to "list all the features" the assistant returns
+~3, not the 9 in the KB. Diagnosis: retrieval hands the model the wrong
+chunks — it keeps matching the KB's intro sentence rather than the feature
+list, and the model only ever sees the 5 chunks retrieved, never the whole KB.
+
+Actions identified, **not yet completed**:
+1. An **embeddings key was pasted** (same OpenAI key) but quality did not
+   visibly improve. **Unverified: whether Reindex was run afterwards** — old
+   chunks carry no embeddings, so without a reindex the semantic path stays
+   dead and it silently falls back to keyword search. Check this first.
+2. **Split the KB into one-topic documents** — especially a Features-only
+   document, so the whole list is retrieved as a unit. Not done.
+3. Add an **FAQ document** written in the words doctors actually use.
+4. System prompt was already fixed (answering is the default, handoff is a
+   closed list) — see the earlier commit.
+
+Owner deprioritised this to keep moving. **It should be closed before P4**:
+onboarding the live business number into a CRM whose drafts are thin means
+real leads get thin answers.
