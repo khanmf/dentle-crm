@@ -724,3 +724,52 @@ per week.
 - Swapping numbers in the CRM = new Phone Number ID + access token in
   Settings, then re-verify the webhook and the `messages` subscription.
   Flow, KB, prompt, automations, pipeline, tags and contacts are untouched.
+
+---
+
+## D6 CLOSED (2026-08-11) — Telegram is the notification channel
+
+**Problem found by code inspection:** the CRM has **no inbound-message
+notification at all**. The `notifications` table only supports
+`conversation_assigned`, there is **no service worker and no web push**, and
+the bell only updates while a browser tab is open. A lead messaging the CRM
+produces complete silence. Today that is invisible (the Meta *test* number
+gets no real traffic), but **the day the business number goes on the Cloud
+API it becomes a lost-deal generator** — that number stops appearing in the
+phone's WhatsApp app, and 09.5 §2.4's "first reply < 1 min" becomes impossible.
+
+**Treat this as a P4 blocker.**
+
+### Rejected: WhatsApp-to-self
+
+First proposal was for the CRM to WhatsApp the owner. **Owner rejected it,
+correctly** — it solves a WhatsApp problem with WhatsApp and inherits both
+defects: a **per-message cost**, and the **24-hour window** (an alert would
+silently fail to deliver unless the owner had messaged himself recently, or a
+template was approved). The notification channel must sit **outside WhatsApp**.
+
+### DECIDED: Telegram bot
+
+Free with no cap (not a free tier — the Bot API has no message charges), instant
+push to phone and desktop, **no conversation-window concept**, and rich messages
+that can carry a deep link straight to the conversation in the CRM.
+
+**Already done by the owner:** bot created via @BotFather, `TELEGRAM_BOT_TOKEN`
+and `TELEGRAM_CHAT_ID` set in Vercel across all three environments, redeployed,
+and a manual `sendMessage` test **confirmed delivering**. The channel is proven
+before any code exists.
+
+Alternatives considered: **ntfy.sh** (simpler still, but topics are effectively
+public — unacceptable for messages containing lead names) and **Discord
+webhooks** (fine, but no advantage over Telegram here). **Pushover** is paid.
+
+### This also closes the digest delivery question
+
+The §6 daily digest currently attempts WhatsApp delivery, which carries the same
+window problem. **The same Telegram bot delivers the digest**, so the digest
+stops depending on WhatsApp entirely. One channel, both jobs, zero cost.
+
+**Next:** build in a dedicated session — a Telegram notifier module, a hook in
+the WhatsApp webhook (first unanswered inbound per conversation only, plus quiet
+hours), and re-route the digest. Owner has explicitly waived the
+sanctioned-zones restriction for this work.
