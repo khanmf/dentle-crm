@@ -773,3 +773,53 @@ stops depending on WhatsApp entirely. One channel, both jobs, zero cost.
 the WhatsApp webhook (first unanswered inbound per conversation only, plus quiet
 hours), and re-route the digest. Owner has explicitly waived the
 sanctioned-zones restriction for this work.
+
+---
+
+## D7 (2026-08-11) — Telegram as a two-way CRM query surface: STAGED, commands first
+
+Owner asked whether the Telegram bot could also answer free-text questions from
+CRM/Supabase data ("who hasn't been followed up?", "what did Dr. Wasim last
+say?"). **Yes — and it is the natural home for WS 12 §5's re-entry surface.**
+Decided to build it in **two stages**, commands before LLM.
+
+### Stage 1 — fixed commands (build right after the notifier)
+
+`/today` (new leads · unanswered threads · demos today) · `/pending`
+(active-stage contacts with no next-follow-up date) · `/lead <name>` (stage,
+last message, next step) · `/digest` (the digest on demand).
+
+**Free** — no LLM call. **Instant.** **Cannot hallucinate**, because it reads
+rows rather than reasoning about them. Reuses the queries already written in
+`src/lib/digest/build.ts`.
+
+### Stage 2 — free-text questions (later, deliberately)
+
+Rationale for not going straight here: the realistic question set is about five
+recurring questions, and putting an LLM in front of five known questions is
+over-engineering that introduces the one unacceptable failure mode —
+**hallucinating about the owner's own pipeline**. A wrong answer to "has Wasim
+paid?" destroys trust in the tool permanently, and an untrusted tool is dead
+weight.
+
+Running Stage 1 for a couple of weeks produces the real spec: whatever the owner
+types that the commands don't cover. Stage 2 then feeds the LLM **structured
+query results to summarise**, never raw database access — safer and cheaper.
+
+### ⚠️ Security — mandatory from the first line of two-way code
+
+Making the bot two-way means exposing a **public endpoint** Telegram posts to.
+Unguarded, anyone who finds the URL can query lead data. **Both guards are
+required, built in from the start, never bolted on:**
+
+1. **Reject any update whose `chat.id` is not the owner's** — the allowlist is
+   exactly one ID.
+2. **Set Telegram's secret-token header** (`secret_token` on `setWebhook`) and
+   verify it on every request.
+
+### Sequencing
+
+The **one-way notifier stays the priority** — it is the P4 blocker. Stage 1
+commands follow immediately after; they must not delay it. The notifier build
+should therefore keep its Telegram send/format logic in a **standalone module**
+so a receive endpoint can be added later without restructuring.
