@@ -653,3 +653,74 @@ Actions identified, **not yet completed**:
 Owner deprioritised this to keep moving. **It should be closed before P4**:
 onboarding the live business number into a CRM whose drafts are thin means
 real leads get thin answers.
+
+---
+
+## D4 REVISED (2026-08-11) — Cal.com webhook bridge is the chosen design, DEFERRED
+
+**Correcting an earlier claim in this file:** it said Cal.com "closed" D4 and
+that the `demo_confirmation` / `demo_reminder_24h` / `demo_reminder_1h`
+templates were "no longer needed". **That was premature** — asserted before the
+owner had evaluated what Cal.com actually sends. The templates are **on hold,
+not cancelled. Do not delete them.**
+
+### What changed the picture
+
+Cal.com's **Webhooks** are available on the owner's free plan (verified in-app).
+Triggers include **Booking created / rescheduled / cancelled**, with a
+Subscriber URL and a shared Secret. That supplies the fact the CRM never had:
+**the booked slot datetime**.
+
+### The design (chosen, not built)
+
+Cal.com `Booking created` → CRM webhook endpoint → store the slot →
+schedule `demo_reminder_24h` + `demo_reminder_1h` → existing cron drains and
+sends them **from Dentle's own WhatsApp number**.
+
+Why this beats Cal.com's own WhatsApp/SMS workflows:
+
+| | Cal.com credits | This bridge |
+|---|---|---|
+| Cost | paid credits, separate billing | **~₹0.12/msg** (Meta utility rate) |
+| Sender | Cal.com's provider number | **Dentle's own number** |
+| Lands in | a new thread on the lead's phone | **the existing conversation** |
+
+Cal.com **cannot** use the WABA's quota — it sends through its own provider.
+Confirmed reasoning, not assumed.
+
+### Why it is deferred, not built
+
+- It is **code outside the three sanctioned zones** (branding / digest /
+  bug-fix) → needs an explicit owner go-ahead. This entry is the standing
+  design decision, **not** that go-ahead.
+- Scope is real: a webhook receive route, a scheduled-reminders table +
+  migration, a sender, and cron wiring. **Half to a full session.**
+- It requires the three reminder templates to be **Meta-approved first**.
+- Demo volume is currently low. A reminder system with almost nothing to remind
+  about earns nothing, and revenue-in-30-days still governs (`00_QUEUE.md` §0).
+
+**Interim:** Cal.com's free **email** reminders (24h + 1h) plus the calendar
+invite on the lead's own phone.
+
+**Build trigger:** a no-show costs a real deal, or demo volume reaches several
+per week.
+
+## Number / WABA facts established (2026-08-11)
+
+- **This CRM holds ONE WhatsApp number per account** — `whatsapp_config` is
+  `UNIQUE(user_id)`, and migration 013 enforces one account per
+  `phone_number_id` (the webhook routes inbound by it and uses `.single()`).
+  Meta allows several numbers per WABA; **this app does not**. Running two
+  numbers concurrently would need a second deployment + its own Supabase.
+- **Templates are WABA-scoped, not number-scoped.** Adding the business number
+  to the **same WABA** as the test number carries approvals over with **no
+  resubmission**. A new WABA means resubmitting everything.
+- **Switching the number preserves CRM history** (conversations are stored
+  against the contact in Dentle's own Supabase) — **but on the lead's phone it
+  is a brand-new chat thread**, since messages arrive from a different number.
+  Relevant before switching mid-conversation with a warm lead.
+- **Messaging limits and quality rating are per-number** and reset on a new
+  one; nothing transfers from the test number.
+- Swapping numbers in the CRM = new Phone Number ID + access token in
+  Settings, then re-verify the webhook and the `messages` subscription.
+  Flow, KB, prompt, automations, pipeline, tags and contacts are untouched.
