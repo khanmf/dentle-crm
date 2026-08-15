@@ -823,3 +823,178 @@ The **one-way notifier stays the priority** — it is the P4 blocker. Stage 1
 commands follow immediately after; they must not delay it. The notifier build
 should therefore keep its Telegram send/format logic in a **standalone module**
 so a receive endpoint can be added later without restructuring.
+
+---
+
+## D6 SHIPPED (2026-08-15) — Telegram notifier live, digest re-routed
+
+The D6 decision above is now **code on `claude/p1-crm-configuration-fyeplb`**.
+One-way only: the CRM sends, nothing receives. D7's receive endpoint, commands
+and LLM layer are **deliberately not built** — see "What was NOT built".
+
+### What shipped
+
+**`src/lib/notify/` — a standalone, transport-first module (5 files)**
+
+| File | Role |
+|---|---|
+| `telegram.ts` | `sendTelegramMessage()` — POSTs to the Bot API with `fetch`. No new npm dependency. |
+| `format.ts` | Pure message formatting + HTML escaping. No network, no env. |
+| `quiet-hours.ts` | Pure quiet-hours logic. Clock is an argument, not `Date.now()`. |
+| `links.ts` | Deep-link builder (`<origin>/inbox?c=<id>`). |
+| `inbound.ts` | The one function the webhook calls: gates, formats, sends. |
+
+Nothing in `telegram.ts` knows what a conversation is, so **D7's receive
+endpoint can import it verbatim** — that was the structural requirement from
+the D7 entry and it is met.
+
+**Two hard invariants, both deliberate:**
+
+1. **Never throws into a caller.** Every failure path returns
+   `{ outcome: 'sent' | 'skipped' | 'failed', reason? }`. A Telegram outage
+   cannot break the WhatsApp webhook (which would lose a lead's message) or
+   fail the digest cron (which would turn the GitHub Action red). The send is
+   also bounded by a 5s timeout so a hung request can't eat the webhook's
+   `maxDuration`.
+2. **Never logs the bot token.** The token lives in the request URL — that's
+   Telegram's API shape — so `fetch` errors and proxy error bodies can quote
+   it. Everything bound for a log line goes through `redactToken()` first.
+
+**No config → clean no-op.** With `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
+absent (local dev, CI) the notifier returns `skipped`, not `failed`, and logs
+nothing. Nothing else changes behaviour.
+
+### The inbound hook — "first unanswered message only"
+
+Wired into `src/app/api/whatsapp/webhook/route.ts`, at the **very end** of
+`processMessage`, after the flow runner, the AI draft and the public-API
+fan-out. A slow Telegram can therefore only delay bookkeeping, never the
+lead-facing reply.
+
+**How "first unanswered" is tracked — no new table, no new column.** The
+signal is the **`sender_type` of the conversation's most recent message**,
+read *before* the new inbound row is inserted:
+
+| Previous message | Alert? | Why |
+|---|---|---|
+| none | ✅ | brand-new thread |
+| `agent` | ✅ | a human replied; this inbound reopens the thread |
+| `customer` | ❌ | already unanswered — five messages, one alert |
+| `bot` | ❌ | a flow/automation auto-reply is **not** the owner replying |
+
+`messages.sender_type` already carries exactly this distinction (its CHECK
+constraint is `'customer' | 'agent' | 'bot'`), and the read is one lookup on
+the existing `idx_messages_conversation`.
+
+**`conversations.unread_count` was the obvious candidate and was rejected:**
+it is cleared when the owner *opens* the thread in the inbox, not when they
+reply. A thread that was read and left unanswered would then alert again on
+every subsequent message — precisely the five-alerts-per-lead behaviour the
+rule exists to prevent. D6 says "until the owner has **replied**", and only
+`sender_type` knows that.
+
+Both lookups fail **open** (a DB error ⇒ treat as new ⇒ alert). An extra
+notification is a nuisance; a swallowed one is a lost lead.
+
+### Quiet hours
+
+Default **22:00–08:00 Asia/Kolkata**, overridable per env var (below).
+**Suppressed, never queued** — a missed overnight alert is picked up by the
+~09:05 IST digest, and the thread is still sitting unanswered in the inbox.
+Handles the midnight wrap, a same-day window, and `start === end` (treated as
+an empty window, never a silent 24-hour blackout). An unresolvable timezone
+fails **open** rather than muting everything.
+
+The **digest is never quiet-houred** — it runs on a schedule the owner chose,
+so suppressing it by clock could only ever be a bug.
+
+### Alert shape
+
+```
+💬 New WhatsApp message
+
+Dr. Wasim · +919926728030
+"Do you have pricing for a 3-chair clinic?"
+
+Open in CRM →
+```
+
+Contact name (falling back to the phone), a ≤300-char excerpt, and a deep link
+to `/inbox?c=<conversation_id>`. Sent as Telegram HTML with every interpolated
+value escaped — a lead named `Bold <b>Dentals</b>` cannot inject markup. Media
+with no caption renders as `[image]` / `[audio]`. **No link configured ⇒ the
+alert still sends, minus the link.**
+
+### Digest re-routed to Telegram
+
+`/api/digest/cron` now delivers over Telegram. **The WhatsApp delivery path was
+deleted, not kept as a fallback** — it had the same 24-hour window problem
+(unless the owner had messaged himself in the last day, the digest silently
+failed), and a fallback that works one day in 24 isn't one. The
+`DIGEST_RECIPIENT_PHONE` env var and the `whatsapp_config` lookup are gone.
+
+The digest text is **still returned in the endpoint's JSON response** and
+logged, which is what manual runs and the GitHub Action's logs read. It is sent
+as **plain text with no `parse_mode`**, because the digest interpolates contact
+names verbatim and a name containing `<` or `&` would otherwise be rejected as
+malformed HTML.
+
+`src/lib/digest/build.ts` was **not touched** — `gatherDigest()` and
+`buildDigestText()` stay reusable exactly as D7 stage 1 needs them for `/today`,
+`/pending` and `/digest`.
+
+### What was NOT built (on purpose)
+
+No receive endpoint, no `/today` `/pending` `/lead` `/digest` commands, no LLM
+layer, no Cal.com bridge (D4 stays deferred), no notification settings UI, no
+auto-reply change (the assistant stays in **draft mode**). The notifier is the
+P4 blocker; D7 must not delay it.
+
+### Env vars (all optional; documented in `.env.local.example`)
+
+| Var | Default | Notes |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | — | **already set in Vercel, all 3 envs** |
+| `TELEGRAM_CHAT_ID` | — | **already set in Vercel, all 3 envs** |
+| `NOTIFY_QUIET_HOURS` | on | `off` / `false` / `0` disables suppression |
+| `NOTIFY_QUIET_HOURS_START` | `22:00` | `HH:MM` |
+| `NOTIFY_QUIET_HOURS_END` | `08:00` | `HH:MM` |
+| `NOTIFY_TIMEZONE` | `Asia/Kolkata` | IANA zone |
+| `NEXT_PUBLIC_SITE_URL` | — | **set this** or alerts arrive without a link |
+
+Malformed values warn and fall back to the default — an env typo cannot take
+the notifier down.
+
+### How to test it
+
+**1. Deep links (do this first, one minute).** Set `NEXT_PUBLIC_SITE_URL` in
+Vercel to the CRM's public URL (e.g. `https://dentle-crm.vercel.app`, no
+trailing slash) and redeploy. Without it the alerts still arrive but have no
+"Open in CRM" link.
+
+**2. The inbound alert.** From your personal WhatsApp, message the CRM's Meta
+**test number**. Expect **one** Telegram message within a couple of seconds.
+
+**3. The dedup rule — the part worth actually checking.** Send **four more**
+messages from the same phone. Expect **no further Telegram messages**. Then
+reply to that thread **from the CRM inbox** (a real reply, not just opening
+it), and message in again from your phone: **one new alert**. If a flow
+auto-replies in between, that does *not* re-arm the alert — by design.
+
+**4. Quiet hours.** Either wait until after 22:00 IST and message in (expect
+silence), or temporarily set `NOTIFY_QUIET_HOURS_START` / `_END` to bracket the
+current time, redeploy, and message in.
+
+**5. The digest.** GitHub → Actions → "CRM cron pinger" → **Run workflow**.
+Expect the digest in Telegram, and the same text in the run's log. The response
+JSON's `delivery` field reads `sent` / `skipped` / `failed` — `skipped` means
+the Telegram env vars aren't visible to that deployment.
+
+### Verification
+
+`npm run typecheck`, `npm run lint` (0 errors), `npm test` (**694 passing**,
+45 of them new) and `npm run build` all pass. New unit tests cover the message
+formatter (escaping, truncation, the no-name and no-link fallbacks, the 4096
+ceiling), the quiet-hours logic (midnight wrap, both boundaries, same-day
+window, `start === end`, bad timezone, env parsing) and the first-unanswered
+rule. All pure — no network, no database.

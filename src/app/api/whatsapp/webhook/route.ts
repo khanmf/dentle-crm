@@ -10,6 +10,10 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
+  getLastMessageSenderType,
+  notifyInboundMessage,
+} from '@/lib/notify/inbound'
+import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
@@ -666,6 +670,17 @@ async function processMessage(
     .eq('sender_type', 'customer')
   const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0
 
+  // Who spoke last in this thread, read BEFORE the insert below — this
+  // is what makes the owner alert fire once per unanswered burst rather
+  // than once per message. See src/lib/notify/inbound.ts for why
+  // sender_type (and not unread_count) is the signal. The alert itself
+  // is sent at the very end of this function so it never delays the
+  // lead-facing flow / AI dispatch.
+  const lastSenderType = await getLastMessageSenderType(
+    supabaseAdmin(),
+    conversation.id,
+  )
+
   const { error: msgError } = await supabaseAdmin().from('messages').insert({
     conversation_id: conversation.id,
     sender_type: 'customer',
@@ -824,6 +839,27 @@ async function processMessage(
     content_type: contentType,
     text: contentText,
   })
+
+  // Owner alert (D6). LAST in the function on purpose: everything the
+  // lead is waiting on — the flow reply, the AI draft, the public-API
+  // fan-out — has already run, so a slow or unreachable Telegram can
+  // only delay bookkeeping. Awaited rather than detached because we're
+  // inside `after()`, where a floating promise can be frozen before it
+  // resolves. `notifyInboundMessage` owns its gates (first-unanswered,
+  // quiet hours, missing env) and never throws.
+  const alert = await notifyInboundMessage({
+    lastSenderType,
+    conversationId: conversation.id,
+    contactName: contactRecord.name,
+    contactPhone: contactRecord.phone,
+    messageText: contentText,
+    contentType,
+  })
+  // Log the outcome, never the message body — alerts carry lead names
+  // and the words they typed.
+  if (alert.outcome === 'failed') {
+    console.error('[webhook] owner alert failed:', alert.reason)
+  }
 }
 
 async function parseMessageContent(

@@ -1,8 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
-import { decrypt } from '@/lib/whatsapp/encryption'
-import { sendTextMessage } from '@/lib/whatsapp/meta-api'
+import { sendTelegramMessage } from '@/lib/notify/telegram'
 import {
   DEFAULT_DIGEST_CONFIG,
   gatherDigest,
@@ -20,16 +19,21 @@ import {
  * exactly one secret. Vercel Cron can't set a custom header, which is
  * why an external pinger owns the schedule.
  *
- * Delivery is via the CRM's own WhatsApp number to the owner
- * (`DIGEST_RECIPIENT_PHONE`). While the WABA is still Meta-restricted
- * (err 131031, pending business verification) that send fails — so the
- * digest *text* is always returned in the JSON response (and logged),
- * which is the interim read surface. Once verification clears, delivery
- * starts flowing with no further code change. Failing to send never
- * fails the request: silent-to-lead, loud-to-owner (09.5 §3.3).
+ * Delivery is over **Telegram** (fork decision D6). It used to go via
+ * the CRM's own WhatsApp number to `DIGEST_RECIPIENT_PHONE`, which
+ * carried WhatsApp's 24-hour customer-service window: unless the owner
+ * had messaged himself inside the last day, the digest silently failed
+ * to deliver. Telegram has no window and no per-message cost, so the
+ * WhatsApp path is gone rather than kept as a fallback — a fallback
+ * that only works one day in every 24 hours isn't one.
  *
- * Account/recipient are env-driven because this is a single-owner
- * self-host; nothing here is multi-tenant.
+ * The digest *text* is still always returned in the JSON response (and
+ * logged), which is what manual runs and the GitHub Action's run logs
+ * read. Failing to send never fails the request: silent-to-lead,
+ * loud-to-owner (09.5 §3.3).
+ *
+ * Account is env-driven because this is a single-owner self-host;
+ * nothing here is multi-tenant.
  */
 export async function GET(request: Request) {
   const expected = process.env.AUTOMATION_CRON_SECRET
@@ -86,43 +90,19 @@ export async function GET(request: Request) {
   }
 
   // Always log the digest so a scheduler's run logs capture it even
-  // when WhatsApp delivery is blocked.
+  // when delivery is unconfigured or down.
   console.log(`[digest-cron] digest for account ${accountId}:\n${text}`)
 
-  let delivery: 'sent' | 'skipped' | 'failed' = 'skipped'
-  let deliveryError: string | undefined
-
-  const recipient = process.env.DIGEST_RECIPIENT_PHONE?.trim()
-  if (recipient) {
-    const { data: wa } = await admin
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
-      .eq('account_id', accountId)
-      .maybeSingle()
-    const cfgRow = wa as
-      | { phone_number_id: string; access_token: string; status: string }
-      | null
-    if (!cfgRow || cfgRow.status !== 'connected') {
-      delivery = 'skipped'
-      deliveryError = 'whatsapp not connected'
-    } else {
-      try {
-        await sendTextMessage({
-          phoneNumberId: cfgRow.phone_number_id,
-          accessToken: decrypt(cfgRow.access_token),
-          to: recipient,
-          text,
-        })
-        delivery = 'sent'
-      } catch (err) {
-        // Expected while the WABA is restricted (131031) — surface it,
-        // don't throw. The digest content is still returned below.
-        delivery = 'failed'
-        deliveryError = err instanceof Error ? err.message : 'send failed'
-        console.error('[digest-cron] delivery failed:', deliveryError)
-      }
-    }
-  }
+  // Plain text, no parse_mode: the digest interpolates contact names
+  // verbatim and a name containing `<` or `&` would otherwise be
+  // rejected as malformed HTML by Telegram. `sendTelegramMessage`
+  // never throws — a delivery failure is reported, not raised.
+  //
+  // No quiet-hours check here: the digest runs on a schedule the owner
+  // chose (~09:05 IST), so suppressing it by clock would only ever be
+  // a bug. Quiet hours belong to event-driven alerts.
+  const { outcome: delivery, reason: deliveryError } =
+    await sendTelegramMessage(text)
 
   return NextResponse.json({ ok: true, delivery, deliveryError, digest: text })
 }
