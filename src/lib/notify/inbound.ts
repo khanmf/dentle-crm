@@ -120,9 +120,11 @@ export async function notifyInboundMessage(
       return { outcome: 'skipped', reason: 'conversation already unanswered' }
     }
 
-    // Quiet hours SUPPRESS, they do not queue (D6): a missed overnight
-    // alert is picked up by the ~09:05 IST digest, which is the point
-    // of having a digest at all.
+    // Quiet hours are OFF by default (owner works nights and wants
+    // every lead as it lands) — this is a single boolean check on a
+    // stock deployment. When switched on via NOTIFY_QUIET_HOURS they
+    // SUPPRESS rather than queue: the skipped thread is still sitting
+    // unanswered in the inbox and the ~09:05 IST digest counts it.
     const now = args.now ?? new Date()
     if (isQuietHours(now, quietHoursFromEnv())) {
       return { outcome: 'skipped', reason: 'quiet hours' }

@@ -896,11 +896,26 @@ rule exists to prevent. D6 says "until the owner has **replied**", and only
 Both lookups fail **open** (a DB error ⇒ treat as new ⇒ alert). An extra
 notification is a nuisance; a swallowed one is a lost lead.
 
-### Quiet hours
+### Quiet hours — OFF by default (revised 2026-08-26)
 
-Default **22:00–08:00 Asia/Kolkata**, overridable per env var (below).
-**Suppressed, never queued** — a missed overnight alert is picked up by the
-~09:05 IST digest, and the thread is still sitting unanswered in the inbox.
+**Owner overruled the original default and he is right for his situation:** he
+works nights, wants every lead the moment it lands, and does not want a
+do-not-disturb window. Alerts now fire **24/7** on a stock deployment.
+
+The machinery was **kept, not deleted** — the reasoning behind it still holds
+if the situation changes (an alert that wakes you at 3am eventually gets muted,
+and a muted channel is worse than no channel). Switching it on is one env var,
+no code change:
+
+| Set this | Result |
+|---|---|
+| *(nothing)* | **24/7 alerts** — the current state |
+| `NOTIFY_QUIET_HOURS=on` | 22:00–08:00 IST suppressed |
+| `NOTIFY_QUIET_HOURS_START` / `_END` | custom window, **and implies `on`** |
+| `NOTIFY_QUIET_HOURS=off` | forces off, beats an implied on |
+
+When on, alerts inside the window are **suppressed, never queued** — the thread
+is still sitting unanswered in the inbox and the ~09:05 IST digest counts it.
 Handles the midnight wrap, a same-day window, and `start === end` (treated as
 an empty window, never a silent 24-hour blackout). An unresolvable timezone
 fails **open** rather than muting everything.
@@ -956,9 +971,9 @@ P4 blocker; D7 must not delay it.
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | — | **already set in Vercel, all 3 envs** |
 | `TELEGRAM_CHAT_ID` | — | **already set in Vercel, all 3 envs** |
-| `NOTIFY_QUIET_HOURS` | on | `off` / `false` / `0` disables suppression |
-| `NOTIFY_QUIET_HOURS_START` | `22:00` | `HH:MM` |
-| `NOTIFY_QUIET_HOURS_END` | `08:00` | `HH:MM` |
+| `NOTIFY_QUIET_HOURS` | **off** | `on` enables suppression; `off` forces it off |
+| `NOTIFY_QUIET_HOURS_START` | `22:00` | `HH:MM`; setting it implies `on` |
+| `NOTIFY_QUIET_HOURS_END` | `08:00` | `HH:MM`; setting it implies `on` |
 | `NOTIFY_TIMEZONE` | `Asia/Kolkata` | IANA zone |
 | `NEXT_PUBLIC_SITE_URL` | — | **set this** or alerts arrive without a link |
 
@@ -981,9 +996,10 @@ reply to that thread **from the CRM inbox** (a real reply, not just opening
 it), and message in again from your phone: **one new alert**. If a flow
 auto-replies in between, that does *not* re-arm the alert — by design.
 
-**4. Quiet hours.** Either wait until after 22:00 IST and message in (expect
-silence), or temporarily set `NOTIFY_QUIET_HOURS_START` / `_END` to bracket the
-current time, redeploy, and message in.
+**4. Quiet hours.** Nothing to test — they are off, so night-time messages
+alert normally. To check the feature exists, set `NOTIFY_QUIET_HOURS_START` /
+`_END` to bracket the current time, redeploy, message in, and expect silence;
+then remove them.
 
 **5. The digest.** GitHub → Actions → "CRM cron pinger" → **Run workflow**.
 Expect the digest in Telegram, and the same text in the run's log. The response

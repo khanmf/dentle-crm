@@ -1,11 +1,20 @@
 // ============================================================
-// Quiet hours for owner notifications.
+// Quiet hours for owner notifications — OFF by default.
 //
-// The rule is SUPPRESS, not queue: a missed overnight alert costs
-// nothing (the digest picks the thread up at ~09:05 IST, and the
-// conversation is still sitting unanswered in the inbox), whereas a
-// 3am buzz costs sleep and eventually costs the notification channel
-// its credibility — an alert the owner mutes is worse than no alert.
+// Owner decision (2026-08-26): alerts fire 24/7. He works nights and
+// wants every lead the moment it lands; a suppression window would
+// cost him messages he'd rather have. So the default is "never
+// suppress", and quiet hours are strictly opt-in.
+//
+// The machinery is kept, not deleted, because the reasoning that
+// produced it still holds if the situation changes: an alert that
+// wakes someone at 3am eventually gets muted, and a muted channel is
+// worse than no channel. Turning it on is one env var (see
+// `quietHoursFromEnv`) — no code change, no redeploy of logic.
+//
+// When it IS on the rule is SUPPRESS, not queue: a skipped overnight
+// alert costs little, because the thread is still sitting unanswered
+// in the inbox and the ~09:05 IST digest counts it.
 //
 // Everything here is pure: `isQuietHours` takes the clock as an
 // argument so it can be unit-tested across the wrap-around boundary
@@ -13,7 +22,7 @@
 // ============================================================
 
 export interface QuietHoursConfig {
-  /** When false, nothing is ever suppressed. */
+  /** When false, nothing is ever suppressed. Defaults to false. */
   enabled: boolean
   /** Start of the quiet window, minutes since local midnight. */
   startMinute: number
@@ -23,9 +32,13 @@ export interface QuietHoursConfig {
   timeZone: string
 }
 
-/** 22:00–08:00 in IST — the owner's timezone (Bhopal). */
+/**
+ * Disabled, with 22:00–08:00 IST held as the window that WOULD apply
+ * if the owner ever switches it on. The times are the owner's
+ * timezone (Bhopal); they are inert while `enabled` is false.
+ */
 export const DEFAULT_QUIET_HOURS: QuietHoursConfig = {
-  enabled: true,
+  enabled: false,
   startMinute: 22 * 60,
   endMinute: 8 * 60,
   timeZone: 'Asia/Kolkata',
@@ -56,14 +69,23 @@ function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
+const TRUTHY = new Set(['on', 'true', '1', 'yes'])
+const FALSY = new Set(['off', 'false', '0', 'no'])
+
 /**
- * Build the quiet-hours config from env, falling back to the IST
- * default for any var that is absent or malformed:
+ * Build the quiet-hours config from env. Suppression is OFF unless
+ * something in the environment asks for it:
  *
- *   NOTIFY_QUIET_HOURS       'off' disables suppression entirely
+ *   NOTIFY_QUIET_HOURS       'on' enables it, 'off' disables it.
+ *                            Explicit either way, and always wins.
  *   NOTIFY_QUIET_HOURS_START 'HH:MM', default '22:00'
  *   NOTIFY_QUIET_HOURS_END   'HH:MM', default '08:00'
  *   NOTIFY_TIMEZONE          IANA zone, default 'Asia/Kolkata'
+ *
+ * Setting a START or END without the toggle also switches it on —
+ * bothering to define a window is a clear statement that you want
+ * one, and having to set two vars to get one behaviour is a foot-gun.
+ * An explicit `NOTIFY_QUIET_HOURS=off` still overrides that.
  *
  * A malformed value warns rather than throws — a typo in an env var
  * must not take the notifier down.
@@ -71,11 +93,6 @@ function isValidTimeZone(timeZone: string): boolean {
 export function quietHoursFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): QuietHoursConfig {
-  const toggle = env.NOTIFY_QUIET_HOURS?.trim().toLowerCase()
-  if (toggle === 'off' || toggle === 'false' || toggle === '0') {
-    return { ...DEFAULT_QUIET_HOURS, enabled: false }
-  }
-
   const cfg = { ...DEFAULT_QUIET_HOURS }
 
   const rawStart = env.NOTIFY_QUIET_HOURS_START?.trim()
@@ -87,6 +104,7 @@ export function quietHoursFromEnv(
       )
     } else {
       cfg.startMinute = parsed
+      cfg.enabled = true
     }
   }
 
@@ -99,6 +117,7 @@ export function quietHoursFromEnv(
       )
     } else {
       cfg.endMinute = parsed
+      cfg.enabled = true
     }
   }
 
@@ -108,6 +127,19 @@ export function quietHoursFromEnv(
       cfg.timeZone = rawZone
     } else {
       console.warn('[notify/quiet-hours] ignoring unknown NOTIFY_TIMEZONE')
+    }
+  }
+
+  // The explicit toggle is read LAST so it beats the implicit enable
+  // above in both directions.
+  const toggle = env.NOTIFY_QUIET_HOURS?.trim().toLowerCase()
+  if (toggle) {
+    if (TRUTHY.has(toggle)) {
+      cfg.enabled = true
+    } else if (FALSY.has(toggle)) {
+      cfg.enabled = false
+    } else {
+      console.warn('[notify/quiet-hours] ignoring unrecognised NOTIFY_QUIET_HOURS')
     }
   }
 
@@ -133,11 +165,15 @@ export function minutesOfDayInZone(now: Date, timeZone: string): number {
 /**
  * Is `now` inside the quiet window?
  *
- * Handles the overnight wrap (22:00 → 08:00 spans midnight) as well as
- * a same-day window (e.g. 13:00 → 14:00). `start === end` is treated as
- * an empty window, not a 24-hour one — the safer reading of what an
- * operator who set both to the same value meant, since the alternative
- * silently disables every alert forever.
+ * Returns false immediately when suppression is disabled, which is the
+ * default — so on a stock deployment this is a single boolean check
+ * and every alert goes straight through.
+ *
+ * When enabled, handles the overnight wrap (22:00 → 08:00 spans
+ * midnight) as well as a same-day window (e.g. 13:00 → 14:00).
+ * `start === end` is treated as an empty window, not a 24-hour one —
+ * the safer reading of what an operator who set both to the same value
+ * meant, since the alternative silently mutes every alert forever.
  *
  * Fails OPEN: if the zone can't be resolved at call time we return
  * false and let the notification through. The problem this whole
