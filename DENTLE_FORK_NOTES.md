@@ -36,11 +36,43 @@
 >
 > ### Open before P4 — ask the owner about each of these
 >
-> 1. **⚠️ Export the WhatsApp chats for warm leads, and write the context into
->    the CRM's contact notes.** Owner committed to this 2026-10-01 and asked to
->    be reminded. **Must happen BEFORE the number switch** — afterwards those
->    chats are gone for good. This is the highest-risk open item: it is the
->    only one where delay destroys something that cannot be recovered.
+> 1. **⚠️ CONTACT DATA CLEANUP — the hard gate on P4.** Owner's target is
+>    1–2 days from 2026-10-01, and asked to be reminded of its status. All
+>    leads' numbers are already imported, but the rows are not trustworthy or
+>    complete yet. Five pieces, in this order:
+>
+>    **a. Fix mis-mapped numbers — do this first, it is the severe one.**
+>    Some contacts carry the wrong doctor's phone: the name says one person,
+>    the number belongs to another. Today that is just untidy. **After P4 it
+>    is a confidentiality breach**: the webhook routes inbound by phone
+>    number, so the wrong doctor's message lands in the wrong doctor's thread,
+>    and the AI assistant then drafts a reply from the wrong person's pipeline
+>    context. One leaked thread costs that relationship permanently.
+>    Cross-check sources: the owner's phone contacts, his Gmail contacts, and
+>    the WhatsApp chats themselves.
+>
+>    **b. Export the WhatsApp chats.** Needed twice over — as the historical
+>    record, and as the *evidence* for (a): the chats are what prove which
+>    number actually belongs to whom. **Both vanish at the switch**, so this
+>    must precede it. Nothing recreates them afterwards.
+>
+>    **c. Notes** — relationship context per contact: what they do, what was
+>    last discussed, the next step, any objection raised. Goes in the CRM's
+>    contact notes, not a separate file, because the CRM is where the work
+>    happens after go-live.
+>
+>    **d. Tags** — "important" and the others. Deals exist with correct
+>    stages, but tagging was never done.
+>
+>    **e. Next follow-up date** — the custom field exists and is empty. It is
+>    also what drives the digest's "active leads with NO next-follow-up date"
+>    alarm line, so leaving it blank makes that line meaningless.
+>
+>    **Why this is the highest-risk item:** every other open item below is
+>    recoverable — a thin AI draft gets fixed later, an unconfigured digest
+>    gets configured later. This one is not. The WhatsApp chats are destroyed
+>    by the switch, and they are the only way to verify (a). Sequencing
+>    matters: **export before cross-checking, cross-check before switching.**
 > 2. **AI drafts answer thinly.** Ask it to "list all the features" and it
 >    returns ~3 of 9 — retrieval hands the model the wrong chunks. First check
 >    is cheap: Settings → AI Assistant → **Reindex** (old chunks carry no
