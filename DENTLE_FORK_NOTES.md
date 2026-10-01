@@ -1,5 +1,94 @@
 # Dentle fork — status & notes
 
+> ## 📍 START HERE — where things stand (updated 2026-10-01)
+>
+> **Read this box first.** Everything below it is history, newest at the
+> bottom. You do not need to read the rest to pick the work back up.
+>
+> ### What this is
+>
+> A fork of the open-source WhatsApp CRM `ArnasDon/wacrm`, customised to run
+> Dentle's own sales process — selling Dentle to dental clinics. Leads message
+> on WhatsApp, the CRM tracks them through a 9-stage pipeline, an AI assistant
+> drafts replies (**draft mode — it never sends on its own**).
+>
+> ### What is LIVE and verified working
+>
+> - **The CRM itself**, deployed from `main` on Vercel. Dentle-branded.
+> - **Telegram alerts on inbound WhatsApp messages.** Verified end-to-end
+>   2026-08-26. Contact name, message excerpt, link straight to the
+>   conversation. Quiet hours are **off** — alerts fire 24/7.
+> - **Pipeline, tags, custom fields, the qualification flow, the AI knowledge
+>   base and system prompt** — all configured in-app.
+> - **Cal.com** booking at `https://cal.com/dentle/30min`, on the real calendar.
+>
+> ### Where we are
+>
+> **P1 (config), P2 (flow), P3 (AI brain) are DONE. P4 is go-live** — moving
+> the real business number **+91 99267 28030** onto the WhatsApp Cloud API so
+> leads reach the CRM instead of the phone app. Meta business verification is
+> approved and the old send restriction is lifted, so P4 is unblocked —
+> it is a decision, not a dependency.
+>
+> **P4 is irreversible.** Onboarding that number removes it from the WhatsApp
+> app on the phone permanently, and the existing chat history does NOT come
+> with it. The Meta **test number** stays the safe surface until then.
+>
+> ### Open before P4 — ask the owner about each of these
+>
+> 1. **⚠️ Export the WhatsApp chats for warm leads, and write the context into
+>    the CRM's contact notes.** Owner committed to this 2026-10-01 and asked to
+>    be reminded. **Must happen BEFORE the number switch** — afterwards those
+>    chats are gone for good. This is the highest-risk open item: it is the
+>    only one where delay destroys something that cannot be recovered.
+> 2. **AI drafts answer thinly.** Ask it to "list all the features" and it
+>    returns ~3 of 9 — retrieval hands the model the wrong chunks. First check
+>    is cheap: Settings → AI Assistant → **Reindex** (old chunks carry no
+>    embeddings, so semantic search silently does nothing without it). If still
+>    thin, split the KB into one-topic documents, especially a features-only
+>    one. Owner will tackle this as a separate piece of work.
+> 3. **Follow-up gap in the alert rule** — see "Alert de-duplication" below.
+> 4. **The digest is built but never set up.** Needs `AUTOMATION_CRON_SECRET`
+>    in Vercel plus `CRM_BASE_URL` / `CRM_CRON_SECRET` as GitHub Actions
+>    secrets. ~10 minutes.
+> 5. **D7 stage 1 — two-way bot** (`/today`, `/pending`, `/lead <name>`,
+>    `/digest`). Designed, not built. Not a blocker.
+>
+> ### Alert de-duplication — the thing that confuses on return
+>
+> By default the bot alerts **once per unanswered thread**: a new alert only
+> when the thread is brand new, or when *you* last replied from the CRM. Five
+> messages from one lead produce one alert. It is **not** "new contacts only".
+>
+> If messages arrive and no alert does, this rule is almost always why, and it
+> is working correctly. To re-arm it, **send a real reply from the CRM inbox** —
+> opening the thread is not enough.
+>
+> **Owner has opted out of this** (2026-10-01): set
+> `NOTIFY_EVERY_MESSAGE=on` in Vercel and every inbound message alerts. His
+> reasoning: a repeated buzz costs nothing, a missed client message costs a
+> deal. **Known gap either way:** with the rule ON, a lead who follows up days
+> later raises no alert — the opt-out side-steps this rather than fixing it.
+>
+> ### Env vars that matter (all in Vercel)
+>
+> | Var | What happens without it |
+> |---|---|
+> | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | No alerts at all (silent no-op) |
+> | `NEXT_PUBLIC_SITE_URL` | Alerts arrive with no "Open in CRM" link |
+> | `NOTIFY_EVERY_MESSAGE=on` | Falls back to one-alert-per-unanswered-thread |
+> | `NOTIFY_QUIET_HOURS=on` | Quiet hours stay off (current state) |
+> | `AUTOMATION_CRON_SECRET` | The digest endpoint returns 503 |
+>
+> Changing any of these needs a **redeploy** — Vercel only picks up new values
+> on a fresh build.
+>
+> ### Deployment
+>
+> `main` → Vercel production. All fork work merged there 2026-08-26 (PR #1).
+> Before that, `main` was stock upstream and **none of this code had ever
+> run** — worth remembering if something seems absent after a deploy.
+
 > 👉 **DOING THE CONFIGURATION? Read `CONFIG_SITTING_CHECKLIST.md` instead.**
 > This file is the *reasoning record* — P0→P3 written in the order it happened.
 > The checklist is the same steps in the order you actually perform them, with

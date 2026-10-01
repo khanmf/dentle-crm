@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest'
-import { isFirstUnansweredInbound } from './inbound'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import {
+  isFirstUnansweredInbound,
+  notifyEveryMessage,
+  shouldAlertForInbound,
+} from './inbound'
 import { conversationUrl, getAppBaseUrl } from './links'
 import { getTelegramConfig, redactToken } from './telegram'
 
@@ -100,5 +104,53 @@ describe('redactToken', () => {
     expect(redactToken('abc and abc', token)).toBe(
       '<redacted> and <redacted>',
     )
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('notifyEveryMessage', () => {
+  it('is off unless explicitly set', () => {
+    expect(notifyEveryMessage({})).toBe(false)
+    expect(notifyEveryMessage({ NOTIFY_EVERY_MESSAGE: '' })).toBe(false)
+  })
+
+  it('accepts the on words', () => {
+    for (const value of ['on', 'ON', 'true', '1', 'yes']) {
+      expect(notifyEveryMessage({ NOTIFY_EVERY_MESSAGE: value })).toBe(true)
+    }
+  })
+
+  it('accepts the off words', () => {
+    for (const value of ['off', 'false', '0', 'no']) {
+      expect(notifyEveryMessage({ NOTIFY_EVERY_MESSAGE: value })).toBe(false)
+    }
+  })
+
+  it('warns and stays off for a typo rather than guessing', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(notifyEveryMessage({ NOTIFY_EVERY_MESSAGE: 'enabled!' })).toBe(false)
+    expect(warn).toHaveBeenCalled()
+  })
+})
+
+describe('shouldAlertForInbound', () => {
+  const senders = ['customer', 'agent', 'bot', null] as const
+
+  it('keeps the de-dupe rule when the opt-out is off', () => {
+    expect(shouldAlertForInbound(null, false)).toBe(true)
+    expect(shouldAlertForInbound('agent', false)).toBe(true)
+    expect(shouldAlertForInbound('customer', false)).toBe(false)
+    expect(shouldAlertForInbound('bot', false)).toBe(false)
+  })
+
+  it('alerts on EVERY message when the opt-out is on', () => {
+    // The owner's choice: a repeated buzz costs nothing, a missed
+    // client message costs a deal. No sender state may suppress.
+    for (const sender of senders) {
+      expect(shouldAlertForInbound(sender, true)).toBe(true)
+    }
   })
 })
