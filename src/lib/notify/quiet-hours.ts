@@ -21,6 +21,8 @@
 // without touching the system time.
 // ============================================================
 
+import { parseBooleanFlag, wasProvided } from './env'
+
 export interface QuietHoursConfig {
   /** When false, nothing is ever suppressed. Defaults to false. */
   enabled: boolean
@@ -68,9 +70,6 @@ function isValidTimeZone(timeZone: string): boolean {
     return false
   }
 }
-
-const TRUTHY = new Set(['on', 'true', '1', 'yes'])
-const FALSY = new Set(['off', 'false', '0', 'no'])
 
 /**
  * Build the quiet-hours config from env. Suppression is OFF unless
@@ -132,15 +131,14 @@ export function quietHoursFromEnv(
 
   // The explicit toggle is read LAST so it beats the implicit enable
   // above in both directions.
-  const toggle = env.NOTIFY_QUIET_HOURS?.trim().toLowerCase()
-  if (toggle) {
-    if (TRUTHY.has(toggle)) {
-      cfg.enabled = true
-    } else if (FALSY.has(toggle)) {
-      cfg.enabled = false
-    } else {
-      console.warn('[notify/quiet-hours] ignoring unrecognised NOTIFY_QUIET_HOURS')
-    }
+  const raw = env.NOTIFY_QUIET_HOURS
+  const toggle = parseBooleanFlag(raw)
+  if (toggle !== null) {
+    cfg.enabled = toggle
+  } else if (wasProvided(raw)) {
+    console.warn(
+      '[notify/quiet-hours] ignoring unrecognised NOTIFY_QUIET_HOURS',
+    )
   }
 
   return cfg

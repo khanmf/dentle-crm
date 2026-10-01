@@ -39,9 +39,16 @@
 // inbox, not when they reply, so a thread that was read and left
 // unanswered would alert again on every subsequent message — the exact
 // five-alerts-per-lead behaviour this rule exists to prevent.
+//
+// ── Opting out ──────────────────────────────────────────────
+//
+// `NOTIFY_EVERY_MESSAGE=on` disables all of the above and alerts on
+// every inbound message. See `notifyEveryMessage` below for why that
+// is a reasonable choice for this deployment.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { parseBooleanFlag, wasProvided } from './env'
 import { formatInboundAlert } from './format'
 import { conversationUrl } from './links'
 import { isQuietHours, quietHoursFromEnv } from './quiet-hours'
@@ -88,6 +95,42 @@ export function isFirstUnansweredInbound(
   return lastSenderType === null || lastSenderType === 'agent'
 }
 
+/**
+ * Owner opt-out of the de-duplication rule entirely (2026-10-01).
+ *
+ * `NOTIFY_EVERY_MESSAGE=on` alerts on EVERY inbound customer message,
+ * however many arrive and whether or not the thread is already
+ * unanswered. The owner's reasoning, and it is sound for a one-person
+ * sales desk: a repeated buzz costs him nothing, a missed client
+ * message costs him a deal, and he would rather have the noise.
+ *
+ * Off by default — the first-unanswered rule still governs unless this
+ * is explicitly set.
+ */
+export function notifyEveryMessage(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const raw = env.NOTIFY_EVERY_MESSAGE
+  const parsed = parseBooleanFlag(raw)
+  if (parsed === null && wasProvided(raw)) {
+    console.warn(
+      '[notify/inbound] ignoring unrecognised NOTIFY_EVERY_MESSAGE',
+    )
+  }
+  return parsed ?? false
+}
+
+/**
+ * The whole alert/suppress decision, as one pure function so the two
+ * inputs can be tested together without a database or an environment.
+ */
+export function shouldAlertForInbound(
+  lastSenderType: 'customer' | 'agent' | 'bot' | null,
+  everyMessage: boolean,
+): boolean {
+  return everyMessage || isFirstUnansweredInbound(lastSenderType)
+}
+
 export interface NotifyInboundArgs {
   /** Sender of the previous message, from `getLastMessageSenderType`. */
   lastSenderType: 'customer' | 'agent' | 'bot' | null
@@ -116,7 +159,7 @@ export async function notifyInboundMessage(
   args: NotifyInboundArgs,
 ): Promise<NotifyOutcome> {
   try {
-    if (!isFirstUnansweredInbound(args.lastSenderType)) {
+    if (!shouldAlertForInbound(args.lastSenderType, notifyEveryMessage())) {
       return { outcome: 'skipped', reason: 'conversation already unanswered' }
     }
 
